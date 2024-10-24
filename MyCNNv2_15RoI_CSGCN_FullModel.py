@@ -150,6 +150,8 @@ num_rois = 15
 fig_dimensions = (6, 6) 
 show_legend = True
 
+########## Proposed CNN stem ######################
+
 def make_model(input_shape, num_classes):
     input1 = tf.keras.Input(shape=input_shape)
 
@@ -161,7 +163,7 @@ def make_model(input_shape, num_classes):
 
     previous_block_activation = x  # Set aside residual
 
-    for size in [256, 512, 768, 1024]:
+    for size in [128, 256, 512, 768, 1024]:
         x = tf.keras.activations.gelu(x)
         x = layers.SeparableConv2D(size, 3, padding="same")(x)
         x = layers.BatchNormalization()(x)
@@ -254,6 +256,10 @@ model.compile(optimizer=optimizer,
               loss='categorical_crossentropy',
               metrics=['acc'])
 model.summary()
+
+
+
+###################### full Model ####################
 
 
 
