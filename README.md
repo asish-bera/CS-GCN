@@ -1,5 +1,4 @@
-# CS-GCN  Manuscript Number: BSPC-D-24-05997R1
-Fluorescence Microscopy And Histopathology Image Based Cancer Classification Using Graph Convolutional Network With Channel Splitting
+**Fluorescence Microscopy And Histopathology Image Based Cancer Classification Using Graph Convolutional Network With Channel Splitting**
 
 
 Abstract: Since the proliferation of deep learning, several convolutional neural networks (CNNs) are developed to attain significant breakthroughs for automated cancer classification using histopathology and fluorescence microscopy images. This work enhances the classification performances of human breast
