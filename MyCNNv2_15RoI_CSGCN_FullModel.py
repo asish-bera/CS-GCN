@@ -2,7 +2,6 @@ from tensorflow.keras.optimizers import Adam, SGD, RMSprop
 from tensorflow.keras.callbacks import CSVLogger, ModelCheckpoint
 from spektral.layers import  GlobalAttentionPool,SortPool,TopKPool, GlobalSumPool, GlobalAttnSumPool, TAGConv, APPNPConv,GlobalAvgPool, AGNNConv
 from tensorflow.keras import backend
-#from spektral.layers.ops import sp_matrix_to_sp_tensor
 from tensorflow.keras.layers import Input, Dropout, Flatten
 from spektral.layers.convolutional.conv import Conv
 from tensorflow.keras import backend as K
@@ -13,12 +12,6 @@ import tensorflow as tf
 tf.compat.v1.disable_eager_execution()
 import sys
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="0"
-config = tf.compat.v1.ConfigProto()
-config.gpu_options.allow_growth = True
-session = tf.compat.v1.Session(config=config)
-gpu_options = tf.compat.v1.GPUOptions(per_process_gpu_memory_fraction=0.982)
-sess = tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(gpu_options=gpu_options))
 from tensorflow.keras.models import Sequential
 tf.compat.v1.disable_eager_execution()
 from tensorflow.keras.layers import Activation, BatchNormalization, Conv2D, Dense, Dropout, Flatten, MaxPooling2D
@@ -36,12 +29,9 @@ from tensorflow.keras import layers
 from tensorflow.keras import backend as K
 from tensorflow.keras.models import Model, load_model
 from tensorflow.keras.callbacks import LearningRateScheduler
-#from RoiPoolingConvTF2 import RoiPoolingConv
 from keras_self_attention import SeqSelfAttention
 from keras_self_attention import SeqWeightedAttention as Attention
 from SelfAttention import SelfAttention
-#from SpectralNormalizationKeras import ConvSN2D
-from se import squeeze_excite_block
 import numpy as np
 from SpatialPooling import SpatialPyramidPooling
 from custom_validate_callback import CustomCallback
@@ -53,33 +43,6 @@ import pandas as pd
 import numpy as np
 from matplotlib import pyplot as plt
 
-#~~~~~~~~~~~~~~~~~~~Get Paramaters From File ~~~~~~~~~~~~~~~~~~~
-param_file = open("parameters.txt", "r")
-params = param_file.readlines()
-#Iterate through each of the parameters in the file and run them as if they were executed in this script.
-#This means any script that uses the parameter.txt file share these parameters without having to change each individual script.
-for line in params:
-    if not line[0] == "#":
-        #Remove \n from the end of each line. Necessary for string values.
-        line = line.strip()
-        exec(line)
-
-#~~~~~~~~~~~~~~~~~~~Check Console Paramaters ~~~~~~~~~~~~~~~~~~~
-#After the parameters.txt values have been applied, overwrite them with console-specific parameters.
-#Useful for hyper-parameter searching or running experiments on different datasets without having to make a new script per experiment.
-if len(sys.argv) > 2: #param 1 is file name
-	total_params = len(sys.argv)
-	for i in range(1, total_params, 2):
-		var_name = sys.argv[i]
-		new_val = sys.argv[i+1]
-                #Try to make the new variable an integer/float before defaulting to string.
-		try:
-			exec("{} = {}".format(var_name, new_val))
-		except:
-			exec("{} = '{}'".format(var_name, new_val))
-
-print("TF version:",tf.__version__)
-
 #~~~~~~~~~~~~~~Editable parameters~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
 #change the base model (e.g. InceptionV3, MobileNetV2, Xception, ResNet50)
@@ -88,18 +51,6 @@ from tensorflow.keras.applications.resnet50 import ResNet50  #as KerasModel
 from tensorflow.keras.applications.resnet50 import preprocess_input as pp_input
 
 image_size = (224,224) #image resolution in pixels
-
-#~~~~~~~~~~~~~~Configure Tensorflow GPU Options~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-#Limit the model to use only a single GPU
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-
-#Stop tf2 from automatically executing tensors.
-tf.compat.v1.disable_eager_execution()
-
-#Limit the model to only use as much memory as required. By default Tensorflow will reserve 100% without needing it.
-config = tf.compat.v1.ConfigProto()
-config.gpu_options.allow_growth = True
-session = tf.compat.v1.Session(config=config)
 
 #~~~~~~~~~~~~~~Constants~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #The following should not need to be edited but can be if required. The main reason to do so would be if a dataset is labelled as train & test rather than train & val.
@@ -159,7 +110,7 @@ def make_model(input_shape, num_classes):
     x = layers.Rescaling(1.0 / 255)(input1)
     x = layers.SeparableConv2D(128, 3, strides=2, padding="same")(input1)
     x = layers.BatchNormalization()(x)
-    x = layers.Activation("relu")(x)
+    x = layers.Activation.gelu(x)
 
     previous_block_activation = x  # Set aside residual
 
@@ -188,8 +139,7 @@ def make_model(input_shape, num_classes):
     x = layers.SeparableConv2D(2048, 3, padding="same")(x)
            
     x = layers.BatchNormalization()(x)
-    base_x = layers.Activation("relu")(x)
-    #base_x = tf.keras.activations.gelu(x)
+    base_x = tf.keras.activations.gelu(x)
 
     print("final_feature.shape" , base_x.shape)
     ROIS_resolution =48
@@ -201,23 +151,21 @@ def make_model(input_shape, num_classes):
     roi_pool = RoiPoolingConv(pool_size=pool_size, num_rois=num_rois)([full_img, rois])
     base_channels=2048
     feat_dim=4*4*2048
-    jcvs = []
+    jc = []
 
     for j in range(num_rois):
     	roi_crop = crop(1, j, j+1)(roi_pool)
     	lname = 'roi_lambda_48p'+str(j)
     	x = layers.Lambda(squeezefunc, name=lname)(roi_crop)    
     	x = layers.Reshape((feat_dim,))(x)
-    	jcvs.append(x)      
+    	jc.append(x)      
 
     x = layers.Reshape((feat_dim,))(base_x)
-    jcvs.append(x)
+    jc.append(x)
 
-    jcvs = layers.Lambda(stackfunc, name='lambda_stack')(jcvs)
-    print(jcvs)
-    jcvs=tf.keras.layers.Dropout(0.2) (jcvs)
-    print("jcvs Dropout.shape:",jcvs.shape)
-    x1 = layers.TimeDistributed(layers.Reshape((pool_size,pool_size, base_channels)))(jcvs)
+    jc = layers.Lambda(stackfunc, name='lambda_stack')(jc)
+    jcvs=tf.keras.layers.Dropout(0.2) (jc)
+    x1 = layers.TimeDistributed(layers.Reshape((pool_size,pool_size, base_channels)))(jc)
     print(x1)
 
     x1 = layers.TimeDistributed(layers.GlobalAveragePooling2D(name='GAP_time4'))(x1)
@@ -245,13 +193,11 @@ def make_model(input_shape, num_classes):
     p3 = layers.GlobalAveragePooling1D()(gc3)
    
     x4 = layers.Dropout(0.2)(p3)
-    # We specify activation=None so as to return logits
     bn=BatchNormalization(name='bN')(x4)
     op= layers.Dense(nb_classes, activation='softmax')(bn)
     return tf.keras.Model(inputs=[input1, rois, A_in, B_in], outputs=op)
 
 model = make_model(input_shape=(224,224,3), num_classes=nb_classes)
-
 model.compile(optimizer=optimizer,
               loss='categorical_crossentropy',
               metrics=['acc'])
